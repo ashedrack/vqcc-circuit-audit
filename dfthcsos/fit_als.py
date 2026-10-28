@@ -131,14 +131,17 @@ def fit(R, B, C, outer, u_steps, lr, seed, init=None, log=print):
     return best
 
 
-def refine_joint(U, W, steps=500, log=print, every=50):
-    """Joint L-BFGS on (U, W) for error_2 (W unconstrained, so rank C is kept)."""
+def refine_joint(U, W, steps=500, log=print, every=50, f32=False):
+    """Joint L-BFGS on (U, W) for error_2 (W unconstrained, so rank C is kept).
+    f32=True optimizes in float32 (~6x faster); returned metric is still f64."""
     T = jnp.asarray(target_matrix())
     T2 = float(jnp.sum(T * T))
-    f = lambda p: loss_from_UW(p['U'], p['W'], T, T2)  # noqa: E731
-    vg = jax.jit(jax.value_and_grad(f))
+    dt = jnp.float32 if f32 else jnp.float64
+    Tl = jnp.asarray(np.asarray(target_matrix()), dtype=dt)
+    T2l = jnp.sum(Tl * Tl)
+    f = lambda p: loss_from_UW(p['U'], p['W'], Tl, T2l)  # noqa: E731
     opt = optax.lbfgs()
-    p = dict(U=jnp.asarray(U), W=jnp.asarray(W))
+    p = dict(U=jnp.asarray(U, dtype=dt), W=jnp.asarray(W, dtype=dt))
     st = opt.init(p)
 
     @jax.jit
@@ -154,7 +157,9 @@ def refine_joint(U, W, steps=500, log=print, every=50):
             best = (float(val), p)
         if i % every == 0:
             log(f'  lbfgs {i:5d} error_2 {float(val) * 1e3:.3f} mHa')
-    return best[0], np.asarray(unit(best[1]['U'])), np.asarray(best[1]['W'])
+    Uo, Wo = unit(best[1]['U']), best[1]['W']
+    e = error2(Uo, Wo, T, T2) if f32 else best[0]
+    return e, np.asarray(Uo, dtype=np.float64), np.asarray(Wo, dtype=np.float64)
 
 
 def main() -> None:

@@ -133,6 +133,12 @@ def load_factorization(path: Path) -> dict:
         return {k: np.array(z[k]) for k in ('U', 'W', 'H2_I', 'H1_I', 'Hsym_lower')}
 
 
+def max_batch(A: int, brot: int, cap: int = 128) -> int:
+    """Largest J such that sel + J*brot words + (nbits-1) ancilla fit in `cap` qubits."""
+    nbits = (A - 1).bit_length()
+    return max(1, (cap - 2 * nbits) // brot)
+
+
 def predicted_cost(inputs: V.SubmissionInputs, metrics: dict, words: np.ndarray, brot: int, J: int) -> dict:
     """Score assuming plain-QROM circuits (A - 1 Toffolis per circuit, nbits - 1 ancillas)."""
     R, B, C = inputs.w.shape
@@ -149,12 +155,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('factorization', type=Path)
     ap.add_argument('out', type=Path)
-    ap.add_argument('--brot', type=int, default=12)
-    ap.add_argument('--batch', type=int, default=8)
+    ap.add_argument('--brot', type=int, default=8)
+    ap.add_argument('--batch', type=int, default=0, help='words per circuit; 0 = max under the 128-qubit cap')
     ap.add_argument('--tree', choices=sorted(TREES), default='heap')
     ap.add_argument('--verify', action='store_true')
     a = ap.parse_args()
     fac = load_factorization(a.factorization)
+    a.batch = a.batch or max_batch(76 + fac['U'].shape[0] * fac['U'].shape[1], a.brot)
     inputs = V.load_inputs(fac)
     edges = TREES[a.tree]()
     words = encode(inputs, edges, a.brot)
