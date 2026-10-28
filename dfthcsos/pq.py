@@ -26,7 +26,7 @@ import optax
 jax.config.update('jax_enable_x64', True)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from target import N, target_matrix  # noqa: E402
-from fit_als import loss_from_UW, solve_G, project_psd  # noqa: E402
+from fit_als import loss_from_UW, loss_from_UW_res, solve_G, project_psd  # noqa: E402
 from pipeline import vectors_to_angles, TREES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +62,8 @@ def main() -> None:
     ap.add_argument('--stages', type=int, default=16)
     ap.add_argument('--steps', type=int, default=150, help='Adam steps per stage')
     ap.add_argument('--lr', type=float, default=1e-4)
+    ap.add_argument('--hi-stages', type=int, default=5, help='stages spent freezing the highest-impact share')
+    ap.add_argument('--hi-frac', type=float, default=0.10, help='total share of angles frozen high-first')
     ap.add_argument('--tree', choices=sorted(TREES), default='heap')
     a = ap.parse_args()
 
@@ -96,27 +98,47 @@ def main() -> None:
         if stage < a.stages:
             _, g = loss_and_grad(theta, Wj)
             imp = np.asarray(jnp.abs(g))
-            frac = 1.0 / (a.stages - stage)
-            thr = np.quantile(imp[~frozen], frac)
-            newly = (~frozen) & (imp <= thr)
+            if stage < a.hi_stages:  # top-impact angles first: maximal compensation budget left
+                thr = np.quantile(imp[~frozen], 1 - a.hi_frac / a.hi_stages)
+                newly = (~frozen) & (imp >= thr)
+            else:
+                frac = 1.0 / (a.stages - stage)
+                thr = np.quantile(imp[~frozen], frac)
+                newly = (~frozen) & (imp <= thr)
             frozen |= newly
             th_new = np.array(theta, copy=True)
             th_new[newly] = np.asarray(snap(theta, a.brot))[newly]
             theta = jnp.asarray(th_new)
-            opt_state = opt.init(theta)
             e = err(theta, Wj)
             print(f'stage {stage}: froze {int(newly.sum())} ({frozen.sum()}/{frozen.size}), '
                   f'error_2 {e * 1e3:.2f} mHa ({time.time() - t0:.0f}s)', flush=True)
-        else:
-            opt_state = opt.init(theta)
+        # L-BFGS refit of free angles + W; frozen angles are pinned inside the loss
+        free_mask = jnp.asarray(~frozen, dtype=jnp.float64)
+        theta_frozen = jnp.asarray(np.where(frozen, np.asarray(theta), 0.0))
+
+        def stage_loss(p):
+            th = p['theta'] * free_mask + theta_frozen
+            u = decode_angles(th, edges_j).reshape(R, B, N)
+            return loss_from_UW(u, p['W'], T, T2)
+
+        p = {'theta': theta, 'W': Wj}
+        lopt = optax.lbfgs()
+        lst = lopt.init(p)
+        sf = jax.jit(stage_loss)
+
+        @jax.jit
+        def lstep(p, st):
+            val, g = jax.value_and_grad(sf)(p)
+            upd, st = lopt.update(g, st, p, value=val, grad=g, value_fn=sf)
+            return optax.apply_updates(p, upd), st, val
+
         for _ in range(a.steps):
-            val, g = loss_and_grad(theta, Wj)
-            g = g * jnp.asarray(~frozen)
-            upd, opt_state = opt.update(g, opt_state)
-            theta = optax.apply_updates(theta, upd)
-        # exact W solve for the current decoded vectors
+            p, lst, _ = lstep(p, lst)
+        theta, Wj = p['theta'] * free_mask + theta_frozen, p['W']
+        # exact W solve for the current decoded vectors (float32 CG mid-run; f64 last stage)
         Uq = decode_angles(theta, edges_j).reshape(R, B, N)
-        G = solve_G(Uq, T, jnp.einsum('rbc,rdc->rbd', Wj, Wj))
+        G = solve_G(Uq, T, jnp.einsum('rbc,rdc->rbd', Wj, Wj),
+                    iters=25 if stage < a.stages else 60)
         Wj = jnp.asarray(project_psd(np.asarray(G), C))
         e = err(theta, Wj)
         if e < best[0]:

@@ -56,7 +56,8 @@ def rhs_blocks(U, T):
     return jnp.einsum('rpb,pq,rqc->rbc', M, T, M)
 
 
-def solve_G(U, T, G0, iters=60):
+def solve_G(U, T, G0, iters=60, dt=jnp.float64):
+    U, T, G0 = jnp.asarray(U, dtype=dt), jnp.asarray(T, dtype=dt), jnp.asarray(G0, dtype=dt)
     K, Y = gram_blocks(U), rhs_blocks(U, T)
     A = jax.jit(lambda G: apply_normal(K, G))
     G = G0
@@ -95,8 +96,18 @@ def loss_from_UW(U, W, T, T2):
     return jnp.sqrt(jnp.maximum(jnp.sum(XX * XX) - 2 * ht + T2, 0.0))
 
 
+def loss_from_UW_res(U, W, T):
+    """Same error_2 but via the elementwise residual X^T X - T: float32-safe
+    (no catastrophic cancellation of ~1e4 terms down to ~3e-4)."""
+    M = pack_rank1(unit(U))
+    X = jnp.einsum('rpb,rbc->rcp', M, W).reshape(-1, M.shape[1])
+    R = X.T @ X - T
+    return jnp.sqrt(jnp.sum(R * R))
+
+
 def error2(U, W, T, T2):
-    return float(loss_from_UW(jnp.asarray(U), jnp.asarray(W), T, T2))
+    return float(loss_from_UW(jnp.asarray(U, dtype=jnp.float64),
+                              jnp.asarray(W, dtype=jnp.float64), T, T2))
 
 
 def fit(R, B, C, outer, u_steps, lr, seed, init=None, log=print):
@@ -139,7 +150,8 @@ def refine_joint(U, W, steps=500, log=print, every=50, f32=False):
     dt = jnp.float32 if f32 else jnp.float64
     Tl = jnp.asarray(np.asarray(target_matrix()), dtype=dt)
     T2l = jnp.sum(Tl * Tl)
-    f = lambda p: loss_from_UW(p['U'], p['W'], Tl, T2l)  # noqa: E731
+    f = (lambda p: loss_from_UW_res(p['U'], p['W'], Tl)) if f32 else (  # noqa: E731
+        lambda p: loss_from_UW(p['U'], p['W'], Tl, T2l))
     opt = optax.lbfgs()
     p = dict(U=jnp.asarray(U, dtype=dt), W=jnp.asarray(W, dtype=dt))
     st = opt.init(p)

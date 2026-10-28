@@ -66,7 +66,7 @@ def main() -> None:
     e0 = error2(U2, W2, T, T2)
     print(f'padded -> {U2.shape}: {e0 * 1e3:.2f} mHa (new rows zero-weighted)', flush=True)
     if a.refit:
-        e0, U2, W2 = refine_joint(jnp.asarray(U2), jnp.asarray(W2), a.refit, every=50)
+        e0, U2, W2 = refine_joint(jnp.asarray(U2), jnp.asarray(W2), a.refit, every=50, f32=True)
         U2, W2 = np.asarray(U2), np.asarray(W2)
         print(f'refit -> {e0 * 1e3:.2f} mHa')
     np.savez(a.out, U=U2, W=W2)

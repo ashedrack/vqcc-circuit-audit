@@ -58,3 +58,13 @@ Cost-model facts (verifier heuristic_costs, brot<=8):
   T 17k via optimized loaders (our plain QROM is ~3x more Toffolis -> compiler is next lever).
 - Recipe insight (public README): merge->drop+refit->progressive-quantize->lamopt chain keeps
   error low throughout; fitting at target shape from scratch does not converge.
+
+### Gotchas learned 2026-10-28 (pm)
+- decode->encode of angle words is NOT idempotent (~68% of words change). Always carry
+  quantized state as angle_words, never re-encode decoded vectors for submission.
+- init_lookup iterates the full 2^nbits table (~2^k Toffolis) - our manual unary_iteration
+  over exactly A addresses is cheaper per circuit (A-1 Toffolis).
+- optax.lbfgs in float32 hangs (zoom line search). Adam+f32 fine (~6x faster than f64).
+- pq works: freeze lowest-|dE/dtheta| angles in stages + Adam on free angles + exact CG
+  G-step for W; early stages improve error below continuous start.
+- Naive rounding to brot=8 destroys ANY factorization (+140 mHa on baseline and ours).

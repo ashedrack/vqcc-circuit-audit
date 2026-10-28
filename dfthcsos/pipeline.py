@@ -74,14 +74,18 @@ def one_body_vectors(inputs: V.SubmissionInputs, two_body_vectors: np.ndarray) -
     return vecs.T
 
 
-def encode(inputs: V.SubmissionInputs, edges: np.ndarray, brot: int) -> np.ndarray:
-    """(N + R*B, N - 1) angle words: one-body rows first, then the two-body rows in (rho, b) order."""
+def encode(inputs: V.SubmissionInputs, edges: np.ndarray, brot: int,
+           words2: np.ndarray | None = None) -> np.ndarray:
+    """(N + R*B, N - 1) angle words: one-body rows first, then the two-body rows in (rho, b) order.
+    If `words2` is given (e.g. from progressive quantization), it is used as-is for the
+    two-body rows instead of re-encoding U (re-encoding decoded vectors can flip bits)."""
     R, B, _ = inputs.w.shape
     U = np.asarray(inputs.params['U'], dtype=np.float64).reshape(R * B, N)
-    w2 = angles_to_words(vectors_to_angles(U, edges), brot)
-    u2 = words_to_vectors(w2, edges, brot)
+    if words2 is None:
+        words2 = angles_to_words(vectors_to_angles(U, edges), brot)
+    u2 = words_to_vectors(words2, edges, brot)
     w1 = angles_to_words(vectors_to_angles(one_body_vectors(inputs, u2), edges), brot)
-    return np.concatenate([w1, w2])
+    return np.concatenate([w1, words2])
 
 
 # Circuits: XOR oracle per batch, a plain segment-tree unary-iteration QROM.
@@ -164,7 +168,11 @@ def main() -> None:
     a.batch = a.batch or max_batch(76 + fac['U'].shape[0] * fac['U'].shape[1], a.brot)
     inputs = V.load_inputs(fac)
     edges = TREES[a.tree]()
-    words = encode(inputs, edges, a.brot)
+    with np.load(a.factorization, allow_pickle=False) as _z:
+        w2 = np.asarray(_z['angle_words_2body']) if 'angle_words_2body' in _z.files else None
+        if 'tree_edges' in _z.files:
+            edges = np.asarray(_z['tree_edges'])  # the words were built for this tree
+    words = encode(inputs, edges, a.brot, words2=w2)
     metrics = V.evaluate_words(inputs, words, edges, a.brot)
     print('metrics', {k: (round(v, 6) if isinstance(v, float) else v) for k, v in metrics.items()})
     print('accuracy ok:', V.passes_accuracy(metrics), '| predicted', predicted_cost(inputs, metrics, words, a.brot, a.batch))
