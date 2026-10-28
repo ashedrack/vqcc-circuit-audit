@@ -36,3 +36,25 @@ Competition: `google-verifiable-quantum-circuit-compilation`. Score = geometric 
 ## Submit
 Zip `invsqrt.kmb`, `dqi.kmb`, `dfthcsos/` at the archive root:
 `.venv/bin/kaggle competitions submit -c google-verifiable-quantum-circuit-compilation -f submission.zip -m "msg"`
+
+## dfthcsos original-factorization effort (2026-10-28)
+
+Goal: an end-to-end factorization+circuits pipeline that is entirely our own work.
+
+- `dfthcsos/target.py` — packed-pair target T; `error_2` == verifier epsilon_fro (float64).
+- `dfthcsos/fit_als.py` — alternating fit (exact CG G-step + Adam U-step + L-BFGS joint refine).
+- `dfthcsos/seed_from_baseline.py` — top-rows-by-||W|| seed; `dfthcsos/seed_cluster.py` — cluster-then-truncate seed (better: 1610 vs 2883 mHa at 10x129x60).
+- `dfthcsos/compress.py` — OUR compression chain: drop weakest -> exact pair-merge (lossless)
+  -> copy-truncate (eig of G_r) -> L-BFGS refit -> drop+refit loop to target R.
+- `dfthcsos/pad_b.py` — pad group rows to B=129+ (donor baseline rows, then noise) + refit.
+- `dfthcsos/wrefit.py` — quantization-aware W-refit vs decoded angle words (our protected refit).
+- `dfthcsos/lambda_stage.py` — H2_I/gauge lambda_eff optimizer (verifier-exact metrics).
+- `dfthcsos/to_official.py` — fit npz -> verifier factorization npz.
+
+Cost-model facts (verifier heuristic_costs, brot<=8):
+- inner-prep temp qubits: B<=128 -> ~575, B>=129 -> 304 (cliff at 129; flat to ~256).
+- brot>=9 doubles temp to ~607. C flat ~303-305 through C=90; inner T ~95/copy.
+- baseline score 3.3556e9. Public best chem ~3.5e8 (9.58x): R10/B129/C44, lambda_eff 47.55,
+  T 17k via optimized loaders (our plain QROM is ~3x more Toffolis -> compiler is next lever).
+- Recipe insight (public README): merge->drop+refit->progressive-quantize->lamopt chain keeps
+  error low throughout; fitting at target shape from scratch does not converge.
