@@ -68,3 +68,15 @@ Cost-model facts (verifier heuristic_costs, brot<=8):
 - pq works: freeze lowest-|dE/dtheta| angles in stages + Adam on free angles + exact CG
   G-step for W; early stages improve error below continuous start.
 - Naive rounding to brot=8 destroys ANY factorization (+140 mHa on baseline and ours).
+
+## dqi own decoder (ORIGINALITY-MAX path, started 2026-10-29)
+- `dqi/model.py`: classical BM+Chien+Forney over GF(2^12), validated 6/6 on random errors.
+  `bm_oblivious` = data-oblivious variant (implicit shift via Bx, one flag branch) - validated.
+- `dqi/build.py`: kickmix port SKELETON (incomplete - muxes/L-updates are TODO stubs).
+- Full reversible design notes are at the END of model.py (v2): key trick = conditional
+  overwrites via CSWAP into per-iter scratch slots (self-inverse); garbage -> D/F banks,
+  cleaned by backward replay. Est ~4M Toff, ~3000q (~0.8-1.1x). Chien per-position ~800T.
+- gf2_phase_by_product applies the MBUC phase for FREE once e_j decoded.
+- chain3 grinding R30->R13 in bg: R30@16.2 -> R28@20.9 -> R27 in refit (~22-23 proj).
+  Drop cost ~+2.5/drop; e-stop ~30 -> compression ceiling ~R24-26. That gives own chem ~2.5-3x.
+- LB: 22.68 placeholder (v10 public portfolio, rank ~422). Top 26.14 needs private work.

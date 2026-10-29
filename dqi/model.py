@@ -159,3 +159,89 @@ def bm_oblivious(S: list[int]) -> tuple[list[int], int]:
 #   regenerate and clear C/Bx/L/b state and the D/F banks.
 # Phase trick: gf2_phase_by_product gives the c*bin(e) phase for free once e_j is
 #   decoded; alternatively Z on parity(e_j & M_j) computed by CNOT tree.
+
+
+# ============================================================
+# REVERSIBLE-CIRCUIT DESIGN v2 (resolves conditional-overwrite irreversibility)
+# ============================================================
+# Key insight: a conditional OVERWRITE (Bx_i := flag?A:B) is irreversible.
+# Solutions used everywhere below:
+#   * CSWAP banks/swaps are self-inverse: swap(C,Bx) on flag; swap(L,scratch) etc.
+#   * XOR-accumulate ops (ixor_gf2_mul, cx) are self-inverse given inputs live.
+#   * Per-iteration garbage goes into D[r]/F[r]/scratch slices, cleaned by a
+#     full BACKWARD replay at the end (Bennett-style compute-store-replay).
+#
+# FORWARD BM, per iteration r (all steps reversible):
+#   d = D[r] := S_r ^ sum_i C_i*S_{r-i}        [fresh slice = clean]
+#   flag = F[r] := (d!=0) && (2L<=r)         [fresh slice = clean]
+#   binv = init_gf2_inverse(b); coef ^= d*binv (ixor_gf2_mul); del binv later
+#   C_{i+1} ^= coef * Bx_i                    [uses OLD Bx; in-place, self-inv]
+#   Bx := x*Bx  (in-place cyclic shift chain, unconditional, reversible)
+#   if flag: CSWAP entire C bank <-> Bx bank  (Bx <- C_old; C <- x*Bx_old... 
+#       wait: swap AFTER shift gives Bx=C_old, C=x*Bx_old -- C loses C_old!
+#       -> ORDER: save Cold? NO: do C-update BEFORE shift/swap:
+#       correct order: (a) C ^= coef*x*Bx_old  (b) Bx := x*Bx_old  (c) if flag CSWAP(C,Bx)
+#       => flag: Bx=C_old, C=(x*Bx_old)_new... WRONG -- C was already updated!
+#   REVISED ORDER for update C ^= coef*x*Bx with Bx role-swap:
+#     1) compute coef; 2) Bx := x*Bx (shift); 3) if flag CSWAP(C,Bx)
+#        [Bx now = flag?C_r : x*Bx_r ; C now = flag?x*Bx_r : C_r]
+#     4) C ^= coef * Bx_r  -- PROBLEM: Bx_r gone if flag (it IS C now = x*Bx_r).
+#   FINAL CORRECT ORDER:
+#     1) compute coef (inv + mul)
+#     2) for i: C_{i+1} ^= coef*Bx_i        [Bx_r still live]
+#     3) if flag: CSWAP(C,Bx) [BANKS swap -> Bx=C_r_preupdate? NO C already updated!]
+#   => must snapshot C_old? NO -- reorder differently:
+#     1) compute coef
+#     2) if flag: CSWAP(C,Bx) FIRST [Bx=C_old_preupdate, C=Bx_old]
+#     3) Bx_new = x*Bx: but which bank? After swap Bx holds C_old (the swap target).
+#        Non-flag path needs Bx := x*Bx_old. If flag, Bx should be C_old UNSHIFTED.
+#   SO: swap FIRST, then SHIFT only if !flag (conditional shift = controlled swaps):
+#     1) compute coef
+#     2) if flag: CSWAP(C,Bx)                 [Bx=C_old, C=Bx_old on flag]
+#     3) if !flag: shift Bx <- x*Bx           [~432 controlled swaps]
+#     4) C ^= coef * Bx_old                   [PROBLEM: Bx_old is in C bank now on flag]
+#        FIX: compute U_i=coef*Bx_i into C BEFORE any Bx mutation, using step order:
+#   =>> SIMPLEST WORKING ORDER (verify in classical first):
+#     a) d,flag,coef computed
+#     b) for i: C_{i+1} ^= coef*Bx_i              [Bx_r live; in-place]
+#     c) save Cold is NOT needed: on flag we want Bx=C_old_preupdate BUT C is updated.
+#        => instead do the flag swap of Bx with C BEFORE C update? C update needs coef*Bx_old:
+#     a) d,flag,coef
+#     b) if flag: CSWAP(C,Bx)                   [Bx <- C_old(pre-upd), C <- Bx_old]
+#     c) for i: (C role)_{i+1} ^= coef*(Bx role)_i ?? indices drift. SOLUTION:
+#        keep ROLE indirection via bank pointer parity p (0/1 stored):
+#        C-role bank = bank[p], Bx-role bank = bank[1-p]; flag toggles p.
+#        Then physical banks never move: updates read bank[p]/bank[1-p] -- but the
+#        READ addressing becomes p-dependent => mux both banks' reads (~2x cost, still cheap).
+#        Bx shift: applied to bank[1-p] physically.
+#   DECISION: implement role-indirection with parity bit p (in F tracking); mux
+#   reads cost ~2x on mults -> BM ~700k T. ALTERNATIVE (simpler, chosen):
+#   physical CSWAP of the two 36xb banks on flag (~432T) THEN unconditional ops
+#   always reference the SAME physical registers -- role = location, zero muxing.
+#   Order: a) d,flag,coef b) CSWAP(C,Bx) if flag c) C-update via coef*Bx needs
+#   OLD Bx which on flag is now in C bank -> does the update use C-role or Bx-role?
+#   In classical BM: C_new = C - coef*x^m*Bx where Bx is the OLD B (pre-swap).
+#   With physical swap first, old B is in C bank -> update C_role := Bx_role_bank?
+#   => maintain formula with swapped reads: when flag, U = coef*x*(C bank); when
+#   !flag, U = coef*x*(Bx bank) -- needs the flag-controlled read selection anyway.
+#
+#   PRAGMATIC FINAL: accept ~2x read muxing (flag-controlled bank select for the
+#   multiplier source). BM total ~700-800k Toffolis. Chien ~3.3M. Total ~4M, Q~3k.
+#
+# Chien+Forney (clean inline uncompute per position):
+#   banks sig(36x12), Om(36x12 = sigma*S mod z^70 via 36 multiplications once),
+#   sig'(36x12 = formal deriv coeffs, init once).
+#   Per position j:
+#     acc1 ^= XOR(sig_i)        ; is_root = (acc1==0) into flag ancilla
+#     acc2 ^= XOR(Om_i); acc3 ^= XOR(sig'_i)
+#     e = init_gf2_inverse? no: e = acc2 * inv(acc3): ib=init_gf2_inverse(acc3);
+#       e ^= acc2*ib (ixor_gf2_mul)
+#     p = parity(e & M_j) ancilla; Z(p & is_root): phase applied iff root
+#     uncompute p, e, ib(del), is_root, acc1,acc2,acc3  [inputs all live]
+#     rotate the 3 banks by const alpha^{-j}: coef_i *= alpha^{-i} = LINEAR CNOT map
+#   Per-position cost ~ inverse 315 + del ~90 + mul 63 + evals/control ~300 ~ 800T
+#   => 4095 * ~800 ~ 3.3M Toffolis.
+#
+# Backward replay for BM scratch cleanup (D,F,Lscratch banks): r=69..0 invert.
+# Total estimate: BM fwd ~0.4M + BM bwd ~0.4M + Chien ~3.3M ~ 4.1M Toffolis, ~3000q.
+# Score ~ R(0) * 3000^2 * 4.1e6 vs baseline 1893^2*5.7e6 -> ~0.8-1.1x. GOOD v1.
