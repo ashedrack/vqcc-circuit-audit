@@ -151,3 +151,68 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   * All other scratch: XOR-out/recompute-XOR or keep in replay banks.
 - Remaining: backward replay for BM workspace cleanup (sig/tau/L/DP/W/D/F),
   then real n=70/m=4095 compile + verifier.
+
+## dqi bm_backward (IN PROGRESS - has bugs to fix)
+- `dqi/build.py`: bm_backward written but has ordering bugs:
+  * DC is freed then reused for W[r]/flag recompute - fix order: clear W[r]
+    FIRST (needs Delta via disc-recompute), then flag, then DC last.
+  * ctrlB uncompute line is mangled (comment says simpler: free into garbage).
+  * _shift_poly_right's zr restore direction needs verifying.
+- Phase verified end-to-end before replay: BM+monicize+omega+sweep all correct
+  for in-range cases (n syndromes -> ~n/2 errors). Replay is for ANCILLA
+  cleanup only - does not affect phase correctness, just verifier's |0> check.
+- Per-round named banks now: W[r](ratio), D[r](DC), F[r](flag), LS[r](lscr),
+  ZR[r](wrap coeff). bm_forward returns them; build() captures.
+- Remaining: fix bm_backward ordering, test state restoration (sig/tau/L/DP
+  back to init + all banks |0>), then n=70/m=4095 compile + verify.
+
+## dqi status (2026-10-30, replay build - WIP)
+- `dqi/build.py`: bm_backward written and VERIFIED standalone: 4/4 state-restore
+  cases (sig/tau/L/DP -> |0>) on n=4,{0:1}/{1,3,7,9} n=6,{0,1,3,5} n=8,{1,3} n=8.
+- Fixed during session: init_and on nonzero target -> ccx (line ~494); !flag&nz
+  stale-ref bug (compute t pre-swap, cswap, recompute-clear); flag-tau inversion
+  via tt scratch + recompute-XOR (both flag/nflag branches).
+
+## CRITICAL DEBUGGING LESSONS (verified empirically):
+1. alloc_qubits() returns POSSIBLY-DIRTY qubits after prior free()s. Any
+   CNOT-into-fresh-register snapshot debug is WRONG unless you builder.reset(dbg)
+   FIRST. Several hours of debugging chased phantom corruption that was dirty
+   debug regs, not the circuit.
+   - `builder.reset(dbg)` on a value-check is fine (phase irrelevant for reads).
+2. ixor_gf2_mul is ancilla-clean (compute + immediate uncompute = no leak, probe
+   reads 0). The earlier "dirty" probe was from freeing a NONZERO product (our bug).
+3. Phase is preserved by: fwd+replay alone, fwd+mon+unmon+replay, fwd+mon+omega+
+   restore+unmon. FAILS when all combined (fwd+mon+omega+restore+unmon+z+replay ->
+   phase=False). Untraced interaction, likely allocator/dirty-scratch interaction.
+   Native phase read (sim.read_phase_flipped) is reliable; CNOT snapshots are not.
+
+## NEXT: trace the fwd+mon+omega+restore+unmon+replay composition. Candidates:
+(a) some register in bm_backward/all code is freed non-clean in rare branches;
+(b) kickmix allocator hands a dirty qubit to an assumed-zero scratch only under
+    heavy churn from omega's ~35-call ixor chains; (c) subtle interplay of
+    unrot(_const_gf_mul) + bm_backward. All preceding steps verified cleanly.
+
+## Score-27 exploration (2026-10-29)
+- Current verified portfolio: invsqrt 20.22x (102,664), dqi 58.87x (4.148e11),
+  chem 9.65x (3.477e8) -> GM 22.68. Target 27 needs product x1.71.
+- `public/gluzdov_femoco/` (kaggle ds dmitriigluzdov/vqcc-femoco-public-factorization):
+  open_circuits_v*/dfthcsos fits + `circuit_sources/` incl. SomeJoint's mad-dqi
+  build tree. mad-dqi `build.py` works after symlinking
+  `somejoint/data/comp/kickmix` -> site-packages and `.../verifiers/dqi` ->
+  data/verifiers/dqi, and patching os.sched_getaffinity for macOS.
+- open_circuits_v40/dqi.kmb verified PASS: cost 4.1027e11 (59.6x), 889q,
+  434,512T -> submitted as submission.zip ref 57777774 (~+0.1 GM).
+- mad-dqi variants verified so far are all WORSE than the deployed circuit:
+  base 881q/1.12M-execT (1.03e12), hankel_half+cyclic_gold 883q/997k static,
+  central_circuit+gold_extraction 883q/1.03M static. Deployed 889q/434k config
+  not yet reproduced (static T >> executed T: circuit has conditional paths).
+- Other chem fits evaluated and REJECTED: r4_b303 (48.75 lam, ~4.3e8),
+  r4_b333 (47.50 lam, ~4.4e8), thc_r5 B496/C384 (47.86 lam but brot>=9 ->
+  temp 640, ~5.2e8; also e2=0.0199995 at the cap, E_gap at floor).
+- public/ozer_v9: invsqrt 20.06x, dqi 877q/482kT (55.28x), chem 9.45x - all
+  worse than current. michaelrustad_r10 v5 C44: 3.504e8 (9.58x), also below
+  our 9.65x somejoint chem.
+- Chem lever notes: T scales with angle-word count D; temp qubits floor at
+  304 once B>=129 (brot<=8). lamopt already pushed fits to the e2=0.02 cap.
+  Remaining upside needs either a lower-D fit that still meets error gates
+  or a cheaper lookup compiler.
