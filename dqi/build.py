@@ -251,15 +251,7 @@ def build(*, n=None, m=None) -> km.Circuit:
     sig, tau, L, DP, garbage = bm_forward(builder, S, n)
     omega_in_place(builder, sig, S, n)
     # rotating Chien banks: sig evals; om = first 35 S words; sgp' = odd sig
-    om_rot = S[:35]
-    sgp_rot = [builder.alloc_qubits(B) for _ in range(nc)]
-    for i in range(1, nc, 2):
-        for k in range(B):
-            builder.swap(sig[i][k], sgp_rot[i][k])
-    sig_rot = sig  # sig bank itself rotates (restored later via replay)
-    # TODO: sweep needs the om bank as separate rotating regs; using S[:35]
-    # directly is WRONG layout (omega_i lives in S[i] after omega_in_place) -
-    # keep as-is for now and wire the sweep in next stage.
+    # TODO: Psi pass, sweep wiring (sig/om/sig' rotating banks), cleanup.
     omega_restore(builder, sig, S, n)
     return builder.finish_circuit()
 
