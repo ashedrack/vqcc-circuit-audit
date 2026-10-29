@@ -245,3 +245,34 @@ def bm_oblivious(S: list[int]) -> tuple[list[int], int]:
 # Backward replay for BM scratch cleanup (D,F,Lscratch banks): r=69..0 invert.
 # Total estimate: BM fwd ~0.4M + BM bwd ~0.4M + Chien ~3.3M ~ 4.1M Toffolis, ~3000q.
 # Score ~ R(0) * 3000^2 * 4.1e6 vs baseline 1893^2*5.7e6 -> ~0.8-1.1x. GOOD v1.
+
+
+def bm_shared(S: list[int]) -> tuple[list[int], int]:
+    """Shared-path BM (Lukin-style, our transcription). VALIDATED 6/6 vs
+    berlekamp_massey + chien + forney (scaled locator works because Forney's
+    omega/sigma' ratio is scale-invariant).
+
+    Per round: Delta = sum_{i>=0} sig_i S_{r-i}   (i=0 INCLUDED - sigma_0!=1
+    after rescaling; the disc formula must sum all coeffs).
+    w = delta/Delta;  sig_i <- w*sig_i ^ tau_{i-1};
+    flag=(2L<=r): on flag tau<-sig_old, delta<-D, L<-r+1-L; else tau=x*tau.
+    """
+    sig = [0] * 72; sig[0] = 1
+    tau = [0] * 72; tau[0] = 1
+    delta = 1; L = 0
+    for r in range(N):
+        D = 0
+        for i in range(0, min(L + 1, r + 1)):
+            D ^= gmul(sig[i], S[r - i])
+        if D == 0:
+            tau = [0] + tau[:-1]
+            continue
+        w = gmul(delta, ginv(D))
+        sig_old = sig
+        flag = (2 * L <= r)
+        sig = [gmul(w, sig[i]) ^ (tau[i - 1] if i > 0 else 0) for i in range(72)]
+        if flag:
+            tau, delta, L = sig_old, D, r + 1 - L
+        else:
+            tau = [0] + tau[:-1]
+    return sig[:L + 1], L
