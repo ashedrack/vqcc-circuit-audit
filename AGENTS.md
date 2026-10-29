@@ -104,3 +104,50 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   same method qubit-dieted. Our v1 target ~1900q/~450kT (~12x), then qubit-diet.
 - Reference: circuits/discovered/circuit.py (their uncompute DSL) + constants.json
   (searched windows) + gen_constants.py (classical models for the searches).
+
+## dqi decoder status (2026-10-29, WORKING CORE)
+- `dqi/build.py`: BM forward VERIFIED in-circuit (4/4); omega transform+restore
+  verified; end-to-end phase applied correctly on small-m test.
+- Key: sweep banks rotate by gamma^{-i} per position; after full m=4095 cycle
+  rotation = identity (self-restoring). Small-m tests show S-restore=False only
+  because 8 != 4095.
+- Remaining for submission: BM backward replay to clean sig/tau/L/DP/W/D/F
+  (~1300q garbage), then real m=4095 compile+verify (~2-3M Toffolis, ~3500q ->
+  ~2-4x dqi v1; Psi route + truncation -> ~450kT ~12x v2).
+- chain3: R26 refit ~29.8 landing ~29 (ceiling ~R24-26 @ 26-30mHa).
+
+## dqi decoder status (2026-10-29, PHASE WORKING)
+- `dqi/build.py`: BM forward + omega + Chien sweep + phase — END-TO-END works.
+- Single-error case VERIFIED (phase correct). Multi-error (2+) has a phase bug
+  (extra -1 applied; likely spurious root or e-parity issue) — debug next.
+- KEY FIX: del_gf2_mul/del_gf2_inverse use X-measure+CZ fixups that inject
+  random global phase -> use reset() (Z-measure) for all classical-basis
+  garbage; use ccx (not init_and) for reversible AND uncompute.
+- Sweep: rotating banks self-restore over full m=4095 cycle (gamma^{-i*4095}=1).
+- Remaining: fix multi-error phase, then real m=4095 compile + verify.
+
+## dqi status (2026-10-29, MULTI-ERROR PHASE WORKING)
+- `dqi/build.py`: BM+omega+Chien sweep+phase verified on multi-error (2/3 cases).
+  Remaining: single-error {0:1} edge case fails (phase not applied - debug next).
+- CRITICAL FINDINGS for future work:
+  * `reset()`/`hmr`/`del_gf2_*` UNMATCHED inject random -1 phase (X-measure
+    w/o fixup). The verifier counts them - NO measurement erasure anywhere.
+  * del_gf2_inverse/del_gf2_mul as MATCHED pairs (own init -> own del) are
+    phase-safe. ccx (not init_and) for reversible AND uncompute.
+  * _const_gf_mul: M^{-1} XOR uncompute (reversible, no measurement).
+  * BM per-round garbage (DC, lscr, zr) stays in replay banks; tmp cleared by
+    w-recovery (3 case-distinct controlled-XORs). Backward replay still TODO.
+
+## dqi status (2026-10-29, PHASE CORRECT for all in-range cases)
+- `dqi/build.py`: BM+monicize+omega+Chien sweep+phase — verified on all cases
+  within BM capability (n syndromes -> ~n/2 errors). The 6-error n=8 case
+  correctly fails (underdetermined, not a bug).
+- Phase-erasure rules learned:
+  * reset/hmr/del_*-UNMATCHED inject random -1 -> NEVER use on nonzero regs.
+  * del_gf2_inverse/del_gf2_mul as matched pairs (own init -> own del) clean.
+  * init_and is NOT self-inverse (uses measurement internally) -> uncompute
+    with ccx, never a second init_and.
+  * _const_gf_mul: M^{-1} XOR uncompute (reversible, clean).
+  * All other scratch: XOR-out/recompute-XOR or keep in replay banks.
+- Remaining: backward replay for BM workspace cleanup (sig/tau/L/DP/W/D/F),
+  then real n=70/m=4095 compile + verifier.
