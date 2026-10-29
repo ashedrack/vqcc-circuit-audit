@@ -54,9 +54,9 @@ def leaf_gram(U, W):
     """(R, C, C) leaf Gram X X^T with X[r,c] the packed leaf."""
     Un = unit(jnp.asarray(U))
     D = jnp.einsum('rbp,rqp->rbq', Un, Un)
-    K = D * D
-    Gm = jnp.einsum('rbc,rbd->rcd', jnp.asarray(W), jnp.asarray(W))
-    return np.asarray(jnp.einsum('rbc,rbd->rcd', Gm, K))
+    K = np.asarray(D * D)
+    Wn = np.asarray(W)
+    return np.einsum('rbc,red,rbe->rcd', Wn, Wn, K)
 
 
 def merge_exact(U, W, pairs, leftover):
