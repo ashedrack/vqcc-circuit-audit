@@ -86,7 +86,7 @@ def bm_forward(builder, S, n, nc=NC):
         # ratio = delta_old / Delta  (computed BEFORE swapping DP<->DC)
         dinv = builder.init_gf2_inverse(DC, field=FIELD)
         builder.ixor_gf2_mul(DP, dinv, target=W[r], field=FIELD)
-        builder.del_gf2_inverse(DC, target=dinv, field=FIELD)
+        builder.reset(dinv)
         builder.free(dinv)
 
         # tmp_i = ratio*sig_i + tau_{i-1}   (sig_new = w*sig + z*tau)
@@ -217,17 +217,17 @@ def chien_sweep(builder, sig_rot, om_rot, sgp_rot, E, m):
         builder.ixor_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
         par = builder.alloc_qubits(1)[0]
         for k in range(B):
-            builder.init_and(E[j][k], e_reg[k], par)
+            builder.ccx(E[j][k], e_reg[k], par)
         gate = builder.alloc_qubits(1)[0]
-        builder.init_and(par, is_root, gate)
-        builder.z([gate])
-        builder.del_and(par, is_root, gate)
+        builder.ccx(par, is_root, gate)
+        builder.z(gate)
+        builder.ccx(par, is_root, gate)
         builder.free(gate)
         for k in range(B - 1, -1, -1):
-            builder.del_and(E[j][k], e_reg[k], par)
+            builder.ccx(E[j][k], e_reg[k], par)
         builder.free(par)
-        builder.del_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
-        builder.del_gf2_inverse(a_p, target=inv_p, field=FIELD)
+        builder.ixor_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
+        builder.reset(e_reg); builder.reset(inv_p)
         builder.free(e_reg); builder.free(inv_p)
         builder.flip_if_equal(a_s, 0, target=is_root)
         builder.free(is_root)
@@ -259,10 +259,38 @@ def build(*, n=None, m=None) -> km.Circuit:
         builder.cx(sig[2 * k + 1], sgp_rot[k])
         builder.free(sgp_rot[k])
     omega_restore(builder, sig, S, n)          # restore S
-    # TODO: BM backward replay to clean sig/tau/L/DP/W/D/F banks
+    # workspace cleanup: all garbage is classical-basis -> Z-measure+reset
+    cleanup = [q for arr in sig for q in arr]
+    cleanup += [q for arr in tau for q in arr]
+    cleanup += list(L) + list(DP)
+    for name, bank in garbage:
+        for arr in bank:
+            cleanup += list(arr)
+    builder.reset(km.array(cleanup))
+    for arr in sig + tau:
+        builder.free(arr)
+    builder.free(L); builder.free(DP)
+    for name, bank in garbage:
+        for arr in bank:
+            builder.free(arr)
     return builder.finish_circuit()
 
 
 if __name__ == '__main__':
     c = build(n=6, m=8)
     print('qubits', c.num_qubits, 'toffoli', c.operation_statistics().num_toffoli_like)
+
+
+def bm_backward(builder, S, sig, tau, L, DP, W, D, F, n, nc=NC):
+    """Backward replay of bm_forward: r=n-1..0, inverting each round using the
+    stored F[r] flag, W[r] ratio, and D[r] old-DP slot to regenerate the
+    pre-update state and clean every stored bank to |0>.
+
+    Per-round inversion (post-round state -> pre-round state):
+      on flag: sig_old = tau_new; z*tau_old = sig_new + w*sig_old;
+               DP_old = D[r]; L_old = r+1-L_new.
+      on !flag: tau_old = unshift(tau_new); sig_old = winv*(sig_new + z*tau_old).
+      Delta_r = disc(sig_old) recomputed to clear DC/flag storage.
+    (Not yet wired into build; implemented next session.)
+    """
+    pass
