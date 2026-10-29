@@ -80,3 +80,27 @@ Cost-model facts (verifier heuristic_costs, brot<=8):
 - chain3 grinding R30->R13 in bg: R30@16.2 -> R28@20.9 -> R27 in refit (~22-23 proj).
   Drop cost ~+2.5/drop; e-stop ~30 -> compression ceiling ~R24-26. That gives own chem ~2.5-3x.
 - LB: 22.68 placeholder (v10 public portfolio, rank ~422). Top 26.14 needs private work.
+
+## Lukin-group decoder blueprint (public/lukin_dqi/, from andigu/uncompute repo, public)
+Their DQI circuit: 442,397 Toffolis / 1,837 qubits (~12.7x Kaggle score).
+Architecture (see public/lukin_dqi/discovered/README.md - full math):
+- TRUNCATED shared-path BM: 70 rounds, w=delta/Delta, sig_new=w*sig ^ tau_shifted,
+  ONE inversion/round; coefficient windows MEASURED per round on the weight
+  distribution (bm_windows in constants.json; cutoff mass <4e-5 -> approx decode).
+- Measurement erasure: values computed into FRESH registers get erased by
+  measurement (zero Toffolis); reverse pass only recomputes those. kickmix has
+  hmr/reset + del_and(measurement uncompute) for this - NO full replay needed.
+- In-place omega: triangular transform puts omega in syndrome words 1-35,
+  zeros in 36-70 (workspace for euclid cofactors). Reverse restores S exactly.
+- Psi route: split sigma=E^2+zO^2 (squaring is LINEAR in char2); sigma'=O^2.
+  Half-degree Euclid pass computes Psi=1/sigma' mod sigma ONCE per shot (~44kT);
+  sweep per point = root test + flag-gated pairing (~23T x 4024 = 92.5k).
+- zlin: interpolate phase mask into deg-70 poly U; interpolated part is a fixed
+  syndrome parity -> pure Z gates, no Toffolis; kills 71 of 4095 sweep points.
+- Phase contract: Tr(nu_j * omega/sigma') applied directly; error word NEVER exists.
+- Failure budget ~1.4e-4 (7x under 1e-3 allowance) = coefficient cutoffs +
+  1-entry reversal stack + one Euclidean class. In Kaggle: R(1.4e-4)~1.07.
+- Kaggle Q^2*T score punishes their 1837q: public heliosli 889q/58.9x is the
+  same method qubit-dieted. Our v1 target ~1900q/~450kT (~12x), then qubit-diet.
+- Reference: circuits/discovered/circuit.py (their uncompute DSL) + constants.json
+  (searched windows) + gen_constants.py (classical models for the searches).
