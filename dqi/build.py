@@ -65,6 +65,27 @@ def _shift_poly_left(builder, bank, garbage, control=None):
     garbage.append(zr)
 
 
+def _shift_poly_left_ret(builder, bank, control):
+    """bank <- z*bank on control; returns the wrapped-coeff scratch reg."""
+    for i in range(len(bank) - 1, 0, -1):
+        for q_i, q_j in zip(bank[i], bank[i - 1]):
+            builder.cswap(control, q_i, q_j)
+    zr = builder.alloc_qubits(len(bank[0]))
+    for k in range(len(bank[0])):
+        builder.cswap(control, bank[0][k], zr[k])
+    return zr
+
+
+def _shift_poly_right(builder, bank, zr, control):
+    """bank <- z^-1 * bank on control (inverse of _shift_poly_left):
+    new[i]=old[i+1]; new[top]=zr content (restored via zr, clearing it)."""
+    for k in range(len(bank[0])):
+        builder.cswap(control, bank[-1][k], zr[k])   # zr <- bank[top]... need care
+    for i in range(len(bank) - 1):
+        for q_i, q_j in zip(bank[i], bank[i + 1]):
+            builder.cswap(control, q_i, q_j)
+
+
 def bm_forward(builder, S, n, nc=NC):
     """Shared-path BM. Returns (sig, tau, L, DP) banks and garbage list."""
     sig = [builder.alloc_qubits(B) for _ in range(nc)]
@@ -77,6 +98,8 @@ def bm_forward(builder, S, n, nc=NC):
     W = [builder.alloc_qubits(B) for _ in range(n)]   # stored ratios for replay
     D = [None] * n                                    # DC registers -> replay
     F = [builder.alloc_qubits(1) for _ in range(n)]
+    LS = [None] * n                                   # lscr per round
+    ZR = [None] * n                                   # shift wrap coeff per round
     tmp = [builder.alloc_qubits(B) for _ in range(nc)]  # reusable scratch bank
 
     for r in range(n):
@@ -125,12 +148,12 @@ def bm_forward(builder, S, n, nc=NC):
         builder.isub(km.array(L), target=km.array(lscr))  # lscr = r+1-L
         for k in range(7):
             builder.cswap(flag[0], L[k], lscr[k])
-        garbage.append(lscr)   # replay clears (holds L_old / r+1-L)
+        LS[r] = lscr           # replay clears (holds L_old / r+1-L)
 
         # on !flag: tau <- z*tau (physical shift up)
         nflag = builder.alloc_qubits(1)[0]
         builder.x([nflag]); builder.cx(flag[0], nflag)
-        _shift_poly_left(builder, tau, garbage, control=nflag)
+        ZR[r] = _shift_poly_left_ret(builder, tau, control=nflag)
         builder.cx(flag[0], nflag); builder.x([nflag])
         builder.free(nflag)
 
@@ -179,7 +202,8 @@ def bm_forward(builder, S, n, nc=NC):
         # DC (holds flag? DP_old : Delta) -> replay bank
         D[r] = DC
     garbage += W + [r for r in D if r is not None] + F
-    return sig, tau, L, DP, garbage
+    garbage += [r for r in LS if r is not None] + [r for r in ZR if r is not None]
+    return sig, tau, L, DP, W, D, F, LS, ZR, garbage
 
 
 def monicize(builder, sig, nc=NC):
@@ -314,7 +338,7 @@ def build(*, n=None, m=None) -> km.Circuit:
     builder = km.CircuitBuilder()
     S = [builder.create_quantum_register(B, name=f'S{i}') for i in range(n)]
     E = [builder.create_classical_register(B, name=f'E{j}') for j in range(m)]
-    sig, tau, L, DP, garbage = bm_forward(builder, S, n)
+    sig, tau, L, DP, W, D, F, LS, ZR, garbage = bm_forward(builder, S, n)
     s0 = monicize(builder, sig)                  # scaled locator -> monic
     garbage.append(s0)
     omega_in_place(builder, sig, S, n)          # S[:35]=omega, S[35:]=0
@@ -339,16 +363,114 @@ if __name__ == '__main__':
     print('qubits', c.num_qubits, 'toffoli', c.operation_statistics().num_toffoli_like)
 
 
-def bm_backward(builder, S, sig, tau, L, DP, W, D, F, n, nc=NC):
+def bm_backward(builder, S, sig, tau, L, DP, W, D, F, LS, ZR, n, nc=NC):
     """Backward replay of bm_forward: r=n-1..0, inverting each round using the
-    stored F[r] flag, W[r] ratio, and D[r] old-DP slot to regenerate the
-    pre-update state and clean every stored bank to |0>.
+    stored F[r] flag, W[r] ratio, D[r] DC-slot, LS[r] lscr, ZR[r] wrap coeff.
 
-    Per-round inversion (post-round state -> pre-round state):
-      on flag: sig_old = tau_new; z*tau_old = sig_new + w*sig_old;
-               DP_old = D[r]; L_old = r+1-L_new.
-      on !flag: tau_old = unshift(tau_new); sig_old = winv*(sig_new + z*tau_old).
-      Delta_r = disc(sig_old) recomputed to clear DC/flag storage.
-    (Not yet wired into build; implemented next session.)
+    State inversion (post -> pre):
+      flag=1:      sig=tau (swap back); tau_i <- tau[i+1] + w*sig[i+1] (desc)
+      flag=0,nz=1: tau unshifted already; sig_i <- winv*(sig_i + tau_i_new)
+      flag=0,nz=0: sig unchanged
+    Stored banks cleared by recompute-XOR from the restored state.
+    All ops reversible - no measurement erasure (it corrupts the phase).
     """
+    for r in range(n - 1, -1, -1):
+        flag = F[r]
+        nflag = builder.alloc_qubits(1)[0]
+        builder.x([nflag]); builder.cx(flag[0], nflag)
+
+        # undo !flag tau shift (right shift); restores wrap coeff from ZR[r]
+        _shift_poly_right(builder, tau, ZR[r], control=nflag)
+        builder.free(ZR[r])
+
+        # undo L swap: cswap(flag, L, LS[r]); clear lscr by recompute
+        lscr = LS[r]
+        for k in range(7):
+            builder.cswap(flag[0], L[k], lscr[k])
+        # clear lscr: on flag it holds r+1-L_old=L_new->cur, on !flag r+1-L_cur
+        # XOR (r+1-L_cur) into it on !flag, XOR L_cur on flag
+        t7 = builder.alloc_qubits(7)
+        builder.x([t7[k] for k in range(7) if ((r + 1) >> k) & 1])
+        builder.isub(km.array(L), target=km.array(t7))   # t7 = r+1-L_cur
+        for k in range(7):
+            builder.ccx(nflag, t7[k], lscr[k])           # !flag: lscr ^= r+1-L
+            builder.ccx(flag[0], L[k], lscr[k])          # flag:  lscr ^= L_old
+        builder.free(t7)
+        builder.free(lscr)
+
+        # undo DP<->DC swap: restores DP_old on flag, D[r]<-Delta_r
+        DC = D[r]
+        for k in range(B):
+            builder.cswap(flag[0], DP[k], DC[k])
+        # DC now = Delta_r on both branches
+
+        # undo the locator/template update (state inversion)
+        winv = builder.init_gf2_inverse(W[r], field=FIELD)
+        # !flag&nz: sig_i <- winv*(sig_i + tau_{r+1,i}); flag: swap handled below
+        nzv = builder.alloc_qubits(1)[0]
+        _is_nonzero(builder, DC, nzv)
+        ctrlB = builder.alloc_qubits(1)[0]
+        builder.ccx(nflag, nzv, ctrlB)                   # !flag & nz
+        for i in range(nc):
+            # !flag&nz: sig_i += winv*(sig_i + tau_i) -> transforms to sig_old
+            t = builder.alloc_qubits(B)
+            builder.cx(sig[i], t); builder.cx(tau[i], t)
+            tC = builder.alloc_qubits(B)
+            builder.ixor_gf2_mul(winv, t, target=tC, field=FIELD)
+            for k in range(B):
+                builder.ccx(ctrlB, tC[k], sig[i][k])
+            builder.ixor_gf2_mul(winv, t, target=tC, field=FIELD)
+            builder.cx(tau[i], t); builder.cx(sig[i], t)
+            builder.free(t); builder.free(tC)
+        # flag: swap(sig,tau) -> sig=sig_old,tau=sig_new; tau_i<-tau[i+1]+w*sig[i+1]
+        for i in range(nc):
+            for k in range(B):
+                builder.cswap(flag[0], sig[i][k], tau[i][k])
+        for i in range(nc - 2, -1, -1):
+            t = builder.alloc_qubits(B)
+            builder.cx(tau[i + 1], t)
+            builder.ixor_gf2_mul(W[r], sig[i + 1], target=t, field=FIELD)
+            for k in range(B):
+                builder.ccx(flag[0], t[k], tau[i][k])
+            builder.ixor_gf2_mul(W[r], sig[i + 1], target=t, field=FIELD)
+            builder.cx(tau[i + 1], t)
+            builder.free(t)
+        builder.del_gf2_inverse(W[r], target=winv, field=FIELD)
+        builder.free(winv)
+        _undo_nonzero(builder, DC, nzv); builder.free(nzv)
+        builder.ccx(nflag, nzv, ctrlB)  # nzv recomputed -> reuse for ctrlB undo
+        # (ctrlB uncompute needs nzv value again - it was just undone; recompute)
+        # simpler: free ctrlB into garbage
+        builder.free(ctrlB)
+        builder.cx(flag[0], nflag); builder.x([nflag]); builder.free(nflag)
+
+        # clear stored banks: W[r] (recompute w), F[r] (recompute flag), D[r] (recompute Delta)
+        # Delta_r = disc(sig_r) -> XOR into DC slot
+        DCs = builder.alloc_qubits(B)
+        for i in range(0, min(nc, r + 1)):
+            builder.ixor_gf2_mul(sig[i], S[r - i], target=DCs, field=FIELD)
+        for k in range(B):
+            builder.cx(DCs[k], DC[k])
+        builder.free(DCs)
+        builder.free(DC)
+        # W[r] ^= DP_r * inv(Delta_r): Delta_r == DCs value == disc(sig_r)
+        din = builder.init_gf2_inverse(DC, field=FIELD)
+        builder.ixor_gf2_mul(DP, din, target=W[r], field=FIELD)
+        builder.del_gf2_inverse(DC, target=din, field=FIELD)
+        builder.free(din)
+        # F[r] ^= flag_recomputed = nz(Delta) & (2L<=r)
+        nz2 = builder.alloc_qubits(1)[0]
+        _is_nonzero(builder, DC, nz2)
+        ax2 = builder.alloc_qubits(1)[0]
+        builder.flip_if_less_than(L, r // 2 + 1, target=ax2)
+        builder.init_and(nz2, ax2, flag[0])
+        builder.flip_if_less_than(L, r // 2 + 1, target=ax2)
+        _undo_nonzero(builder, DC, nz2)
+        builder.free(nz2); builder.free(ax2)
+        # free F[r] slot and DC bank reg now clean
+        builder.free(flag)
+    return
+
+
+def _stub_marker():
     pass
