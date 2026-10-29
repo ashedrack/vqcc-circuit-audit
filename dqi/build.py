@@ -170,9 +170,9 @@ def bm_forward(builder, S, n, nc=NC):
             builder.free(tB); builder.free(tC)
         builder.del_gf2_inverse(W[r], target=winv, field=FIELD)
         builder.free(winv)
-        builder.init_and(nf, nzb, ctrlC); builder.free(ctrlC)
+        builder.ccx(nf, nzb, ctrlC); builder.free(ctrlC)
         builder.cx(nzv, nzb); builder.x([nzb]); builder.free(nzb)
-        builder.init_and(nf, nzv, ctrlB); builder.free(ctrlB)
+        builder.ccx(nf, nzv, ctrlB); builder.free(ctrlB)
         _undo_nonzero(builder, DC, nzv); builder.free(nzv)
         builder.cx(flag[0], nf); builder.x([nf]); builder.free(nf)
 
@@ -182,39 +182,39 @@ def bm_forward(builder, S, n, nc=NC):
     return sig, tau, L, DP, garbage
 
 
-def omega_in_place(builder, sig, S, n, nc=NC):
-    """Triangular in-place transform: S[i] <- omega_i = sum_{j=0}^{i} sig_j*S[i-j].
-
-    sigma is SCALED (sig_0 != 1), so the leading term is sig_0*S[i], not S[i]:
-    compute tmp = sig_0*S[i] first, swap into S[i], then XOR the j>=1 terms.
-    Processes i descending so every source word is still pre-transform.
-    """
-    for i in range(n - 1, -1, -1):
-        tmp = builder.alloc_qubits(B)
-        builder.ixor_gf2_mul(sig[0], S[i], target=tmp, field=FIELD)
+def monicize(builder, sig, nc=NC):
+    """sig <- sig / sig_0 (monic locator). Forney's omega/sigma' ratio is
+    scale-invariant. Every erased scratch is cleared by a recompute XOR (no
+    measurement - it would corrupt the phase). Returns the sigma_0 register
+    (needed later to un-monicize before the BM backward replay)."""
+    s0 = builder.alloc_qubits(B)
+    builder.cx(sig[0], s0)                        # s0 = sigma_0
+    inv0 = builder.init_gf2_inverse(sig[0], field=FIELD)
+    for i in range(nc):
+        t = builder.alloc_qubits(B)
+        builder.ixor_gf2_mul(inv0, sig[i], target=t, field=FIELD)
         for k in range(B):
-            builder.swap(S[i][k], tmp[k])
-        builder.reset(tmp)
-        builder.free(tmp)
+            builder.swap(sig[i][k], t[k])         # sig_i <- sig_i/sig_0
+        builder.ixor_gf2_mul(s0, sig[i], target=t, field=FIELD)  # t = old ^ s0*new = 0
+        builder.free(t)
+    builder.del_gf2_inverse(s0, target=inv0, field=FIELD)
+    builder.free(inv0)
+    return s0
+
+
+def omega_in_place(builder, sig, S, n, nc=NC):
+    """Triangular in-place transform: S[i] <- omega_i = S[i] + sum_j sig_j*S[i-j].
+    Requires monic sigma (sig_0 == 1). Descending i keeps sources original."""
+    for i in range(n - 1, -1, -1):
         for j in range(1, min(nc, i + 1)):
             builder.ixor_gf2_mul(sig[j], S[i - j], target=S[i], field=FIELD)
 
 
 def omega_restore(builder, sig, S, n, nc=NC):
-    """Inverse of omega_in_place: S[i] <- omega_i back to S[i]. Undo the j>=1
-    XOR terms ascending, then undo the sig_0 scaling via inv(sig_0)."""
-    dinv0 = builder.init_gf2_inverse(sig[0], field=FIELD)
+    """Inverse of omega_in_place: same XOR terms applied ascending."""
     for i in range(0, n):
         for j in range(1, min(nc, i + 1)):
             builder.ixor_gf2_mul(sig[j], S[i - j], target=S[i], field=FIELD)
-        tmp = builder.alloc_qubits(B)
-        builder.ixor_gf2_mul(dinv0, S[i], target=tmp, field=FIELD)
-        for k in range(B):
-            builder.swap(S[i][k], tmp[k])
-        builder.reset(tmp)
-        builder.free(tmp)
-    builder.reset(dinv0)
-    builder.free(dinv0)
 
 
 _MULT_MATRIX_CACHE = {}
@@ -295,7 +295,7 @@ def chien_sweep(builder, sig_rot, om_rot, sgp_rot, E, m):
             builder.ccx(E[j][k], e_reg[k], par)
         builder.free(par)
         builder.ixor_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
-        builder.reset(e_reg); builder.reset(inv_p)
+        builder.del_gf2_inverse(a_p, target=inv_p, field=FIELD)
         builder.free(e_reg); builder.free(inv_p)
         builder.flip_if_equal(a_s, 0, target=is_root)
         builder.free(is_root)
@@ -315,6 +315,8 @@ def build(*, n=None, m=None) -> km.Circuit:
     S = [builder.create_quantum_register(B, name=f'S{i}') for i in range(n)]
     E = [builder.create_classical_register(B, name=f'E{j}') for j in range(m)]
     sig, tau, L, DP, garbage = bm_forward(builder, S, n)
+    s0 = monicize(builder, sig)                  # scaled locator -> monic
+    garbage.append(s0)
     omega_in_place(builder, sig, S, n)          # S[:35]=omega, S[35:]=0
     om_rot = S[:35]
     # sigma' bank: odd coeffs sigma_{2k+1}, k=0..17 (deg <= 17)
