@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import model  # noqa: E402
 
 FIELD = km.GF2Field(model.B)
+PRIM = FIELD.primitive_element
 N, M, B, LMAX = model.N, model.M, model.B, 35
 NC = LMAX + 1
 
@@ -183,36 +184,37 @@ def _const_gf_mul(builder, reg, pow_exp, nq):
     builder.free(tmp)
 
 
-def _rotate_bank(builder, bank, nc):
-    """Advance Chien counters: bank[i] *= gamma^{-i} for all i (constant muls)."""
-    for i in range(nc):
-        if i:
-            _const_gf_mul(builder, bank[i], -i, B)
+def _rotate_bank(builder, bank, exp_fn):
+    """Advance Chien counters: bank[i] *= gamma^{exp_fn(i)} for all i."""
+    for i in range(len(bank)):
+        e = exp_fn(i) % 4095
+        if e:
+            _const_gf_mul(builder, bank[i], e, B)
 
 
-def _eval_bank(builder, bank, acc, nc):
+def _eval_bank(builder, bank, acc):
     """acc ^= sum_i bank[i]  (Chien eval = XOR of rotated coeffs)."""
-    for i in range(nc):
+    for i in range(len(bank)):
         builder.cx(bank[i], acc)
 
 
-def chien_sweep(builder, sig_rot, om_rot, sgp_rot, E, m, nc=NC, stride=1):
-    """Per-position body: eval sig -> root test, Forney e = om/sgp', phase."""
+def chien_sweep(builder, sig_rot, om_rot, sgp_rot, E, m):
+    """Root scan over all m positions: eval sigma/omega/sigma' at beta_j =
+    gamma^{-j}, Forney e = omega/sigma', phase Z(parity(e & M_j) & is_root).
+    Banks are rotated by constant maps (free Toffolis); after the full 4095-
+    point cycle they return to their initial values (rotation is cyclic)."""
     for j in range(m):
-        # eval accs
-        a_s = builder.alloc_qubits(B)   # sigma eval
-        a_o = builder.alloc_qubits(B)   # omega eval
-        a_p = builder.alloc_qubits(B)   # sigma' eval
-        _eval_bank(builder, sig_rot, a_s, nc)
-        _eval_bank(builder, om_rot, a_o, nc)
-        _eval_bank(builder, sgp_rot, a_p, nc)
+        a_s = builder.alloc_qubits(B)
+        a_o = builder.alloc_qubits(B)
+        a_p = builder.alloc_qubits(B)
+        _eval_bank(builder, sig_rot, a_s)
+        _eval_bank(builder, om_rot, a_o)
+        _eval_bank(builder, sgp_rot, a_p)
         is_root = builder.alloc_qubits(1)[0]
         builder.flip_if_equal(a_s, 0, target=is_root)
-        # e = om_eval * inv(sgp_eval)
         inv_p = builder.init_gf2_inverse(a_p, field=FIELD)
         e_reg = builder.alloc_qubits(B)
         builder.ixor_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
-        # phase: parity(e & M_j) gated by is_root
         par = builder.alloc_qubits(1)[0]
         for k in range(B):
             builder.init_and(E[j][k], e_reg[k], par)
@@ -224,21 +226,18 @@ def chien_sweep(builder, sig_rot, om_rot, sgp_rot, E, m, nc=NC, stride=1):
         for k in range(B - 1, -1, -1):
             builder.del_and(E[j][k], e_reg[k], par)
         builder.free(par)
-        # uncompute e, evals
         builder.del_gf2_mul(a_o, inv_p, target=e_reg, field=FIELD)
         builder.del_gf2_inverse(a_p, target=inv_p, field=FIELD)
         builder.free(e_reg); builder.free(inv_p)
         builder.flip_if_equal(a_s, 0, target=is_root)
         builder.free(is_root)
-        _eval_bank(builder, sig_rot, a_s, nc)
-        _eval_bank(builder, om_rot, a_o, nc)
-        _eval_bank(builder, sgp_rot, a_p, nc)
-        builder.reset(a_s); builder.reset(a_o); builder.reset(a_p)
+        _eval_bank(builder, sig_rot, a_s)
+        _eval_bank(builder, om_rot, a_o)
+        _eval_bank(builder, sgp_rot, a_p)
         builder.free(a_s); builder.free(a_o); builder.free(a_p)
-        # rotate banks for next position
-        _rotate_bank(builder, sig_rot, nc)
-        _rotate_bank(builder, om_rot, nc)
-        _rotate_bank(builder, sgp_rot, nc)
+        _rotate_bank(builder, sig_rot, lambda i: -i)
+        _rotate_bank(builder, om_rot, lambda i: -i)
+        _rotate_bank(builder, sgp_rot, lambda i: -2 * i)
 
 
 def build(*, n=None, m=None) -> km.Circuit:
@@ -246,13 +245,21 @@ def build(*, n=None, m=None) -> km.Circuit:
     m = m or M
     builder = km.CircuitBuilder()
     S = [builder.create_quantum_register(B, name=f'S{i}') for i in range(n)]
-    for j in range(m):
-        builder.create_classical_register(B, name=f'E{j}')
+    E = [builder.create_classical_register(B, name=f'E{j}') for j in range(m)]
     sig, tau, L, DP, garbage = bm_forward(builder, S, n)
-    omega_in_place(builder, sig, S, n)
-    # rotating Chien banks: sig evals; om = first 35 S words; sgp' = odd sig
-    # TODO: Psi pass, sweep wiring (sig/om/sig' rotating banks), cleanup.
-    omega_restore(builder, sig, S, n)
+    omega_in_place(builder, sig, S, n)          # S[:35]=omega, S[35:]=0
+    om_rot = S[:35]
+    # sigma' bank: odd coeffs sigma_{2k+1}, k=0..17 (deg <= 17)
+    sgp_rot = [builder.alloc_qubits(B) for _ in range(18)]
+    for k in range(18):
+        builder.cx(sig[2 * k + 1], sgp_rot[k])
+    chien_sweep(builder, sig, om_rot, sgp_rot, E, m)
+    # uncompute sgp copy (banks self-restored after full 4095 cycle)
+    for k in range(18):
+        builder.cx(sig[2 * k + 1], sgp_rot[k])
+        builder.free(sgp_rot[k])
+    omega_restore(builder, sig, S, n)          # restore S
+    # TODO: BM backward replay to clean sig/tau/L/DP/W/D/F banks
     return builder.finish_circuit()
 
 
