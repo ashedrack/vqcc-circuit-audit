@@ -233,3 +233,20 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
 - drop_group test: R8->R7 dead (e2 jumps to 1600+ mHa). Word count = R*B + 76, so
   only R or B cuts words; C truncation is free-ish in cost model (cuts prep T only).
 - qat.py patched to dev=cpu (torch 2.15 CPU-only; MPS lacks float64).
+
+## Hedge-wizardry portfolio (2026-10-31) - current best submission
+- manwithacat/vqcc-hedge-wizardry-notebook (public, Apache-2.0) curates ALL public
+  circuits via a manifest + verified tweaks. Their submission.zip (kaggle kernels
+  output) verified locally: invsqrt bce2948ff24e (62q, 100,568.5 -> 20.65x),
+  dqi fe98677c61ef (888q, 3.9827e11, 0 err -> 61.3x), chem HW-04 02f8f7d9d75a
+  (marculera C42 R9/B143 fit + slack-spend refit, lam 46.98, 3.310e8 -> 10.14x).
+  GM 23.42 -> submitted ref 57848346.
+- Their chem base is a DIFFERENT fit (marculera C42, lam 47.08) than ours
+  (somejoint R8/B143/C62, lam 48.27). C42: more words (1363 vs 1220) but much
+  lower lam and lower prep T (C42 vs C62).
+- HW slack-spend technique == our cont.py+lamopt path: spend e1/e2/E_gap margin
+  to buy lambda; alternated with column gauge. They got lam -0.22% only.
+- Our cont7 refit (e2 13.68 mHa on R8/B143/C62) is a better continuous fit than
+  Lera's C42 base (e2 19.98); pq requantization chain in progress, then
+  finish/gauge/lamopt/canon + C62->C44 truncation could push chem past 10.14x.
+- pq.py 36-stage progressive quantization ~14min/stage (~8h total on CPU).
