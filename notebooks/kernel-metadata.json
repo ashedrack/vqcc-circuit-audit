@@ -1,12 +1,16 @@
 {
-  "id": "shedrackaji/vqcc-2268-portfolio",
-  "title": "Verified 22.68 portfolio: best-public-circuit assembly",
+  "id": "shedrackaji/vqcc-portfolio-23-42",
+  "title": "VQCC Portfolio 23 42",
   "code_file": "midcomp_portfolio.ipynb",
   "language": "python",
   "kernel_type": "notebook",
   "is_private": false,
   "enable_gpu": false,
   "enable_internet": false,
-  "dataset_sources": ["shedrackaji/vqcc-2268-portfolio"],
-  "competition_sources": ["google-verifiable-quantum-circuit-compilation"]
+  "dataset_sources": [
+    "shedrackaji/vqcc-2268-portfolio"
+  ],
+  "competition_sources": [
+    "google-verifiable-quantum-circuit-compilation"
+  ]
 }
