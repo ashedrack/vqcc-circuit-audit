@@ -1,0 +1,7 @@
+{
+  "title": "VQCC verified 22.68 portfolio components",
+  "id": "shedrackaji/vqcc-2268-portfolio",
+  "licenses": [{"name": "CC0-1.0"}],
+  "description": "Officially-verified component circuits for the Google Quantum AI Verifiable Quantum Circuit Compilation portfolio (public GM 22.68). invsqrt.kmb, dqi.kmb, dfthcsos/ circuits+factorization npz, plus each component's official verifier JSON. Circuits assembled from Apache-2.0 public sources (see NOTICE inside).",
+  "keywords": ["quantum", "kaggle"]
+}
