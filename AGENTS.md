@@ -216,3 +216,20 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   304 once B>=129 (brot<=8). lamopt already pushed fits to the e2=0.02 cap.
   Remaining upside needs either a lower-D fit that still meets error gates
   or a cheaper lookup compiler.
+
+## Mid-comp publication (2026-10-31)
+- Dataset: shedrackaji/vqcc-2268-portfolio (21 flat files; private - flip public in UI)
+- Notebook: kaggle.com/code/shedrackaji/vqcc-portfolio-22-68 (public, competition-
+  linked; hash-verifies all 18 files then builds submission.zip; ran COMPLETE on Kaggle)
+- kernel-metadata.json in notebooks/; dataset-metadata.json in midcomp_dataset/.
+- Kaggle CLI: `datasets create` SKIPS subfolders - keep dataset files flat.
+- Kernel slugs must match title slugification exactly (409/400 errors otherwise).
+
+## Chem improvement chain in flight (2026-10-31)
+- lamopt_run/: lamopt on our somejoint fit finished - best leff 48.32 (vs our 48.27; wash).
+- cont7: cont.py 30k-step continuous refit on cur.npz reached e2 13.9 mHa (cap 19.998),
+  still improving. Next: ctrunc C62->C50/C44 (prep T -950/-1424 at same word count),
+  re-refit, pq --brot 8 (or 7), finish->gauge->lamopt->canon->to_official->verify.
+- drop_group test: R8->R7 dead (e2 jumps to 1600+ mHa). Word count = R*B + 76, so
+  only R or B cuts words; C truncation is free-ish in cost model (cuts prep T only).
+- qat.py patched to dev=cpu (torch 2.15 CPU-only; MPS lacks float64).
