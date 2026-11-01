@@ -264,3 +264,9 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
 - lamopt_run/ files: cur.npz(ours lam48.27), cont7.npz(e2 13.68), c50r.npz(e2 17.13).
 - Env: QCC_VERIFIERS=/Users/shed/Desktop/Kaggle-competition/data/verifiers,
   torch 2.15 CPU, qat.py patched dev=cpu, run caffeinate -i to survive sleep.
+- q8.npz landed: e2 18.39 mHa (under cap). finish+gauge done: lam_eff 48.597,
+  e1 19.16 e2 18.41 Lambda 291.23 (pre-lamopt; HW-04 was 283.8/46.98).
+- lamopt g8.npz -> lam8.npz running under caffeinate pid 83639 (20k steps ~50min,
+  recipe hyperparams, cap 0.01998, e2 slack ~1.6 mHa to spend on lambda).
+- After: finish.py lam8.npz -> gauge -> canon_gauge -> to_official -> rebuild
+  angle circuits -> dfthcsos verify. Beat 3.310e8 (HW-04) -> swap -> resubmit.
