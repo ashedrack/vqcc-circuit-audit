@@ -250,3 +250,17 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   Lera's C42 base (e2 19.98); pq requantization chain in progress, then
   finish/gauge/lamopt/canon + C62->C44 truncation could push chem past 10.14x.
 - pq.py 36-stage progressive quantization ~14min/stage (~8h total on CPU).
+
+## C50 chem chain (2026-11-01, in flight)
+- cont7 refit died at pq stage 15/36 overnight (sleep kill, no checkpoint).
+- Improved path: ctrunc cont7.npz -> c50.npz (C62->C50, kept 97.9% Gram trace,
+  prep T -950 at zero word cost). c44.npz (C62->C44, e2 32 -> too far, dropped).
+- cont.py c50.npz -> c50r.npz (30k steps): e2 22.8 -> 17.13 mHa recovered
+  under cap with ~2.9 slack. C-truncation SURVIVES.
+- pq.py c50r.npz -> q8c50.npz brot=8 now running under caffeinate (pid 43940)
+  ~8h. Watch e2: starts 17.13, pq adds ~+2.7 over schedule -> expect ~19.5-20.
+  After: finish->gauge->lamopt->canon->to_official->rebuild angle circuits->verify.
+  If final cost < 331.0e6 (HW-04 chem) -> swap into portfolio, resubmit (>23.4).
+- lamopt_run/ files: cur.npz(ours lam48.27), cont7.npz(e2 13.68), c50r.npz(e2 17.13).
+- Env: QCC_VERIFIERS=/Users/shed/Desktop/Kaggle-competition/data/verifiers,
+  torch 2.15 CPU, qat.py patched dev=cpu, run caffeinate -i to survive sleep.
