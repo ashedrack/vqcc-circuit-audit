@@ -1,12 +1,12 @@
 {
-  "title": "VQCC verified 22.68 portfolio components",
+  "title": "VQCC verified 24.9 portfolio components",
   "id": "shedrackaji/vqcc-2268-portfolio",
   "licenses": [
     {
       "name": "CC0-1.0"
     }
   ],
-  "description": "Officially-verified component circuits for the Google Quantum AI Verifiable Quantum Circuit Compilation portfolio (public GM 23.42). invsqrt.kmb (62q), dqi.kmb (888q), dfthcsos/ C42 circuits+factorization npz, plus each component's official verifier JSON. Apache-2.0 public components; see notebook for provenance.",
+  "description": "Officially-verified component circuits for the Google Quantum AI Verifiable Quantum Circuit Compilation portfolio (public GM ~24.94). invsqrt.kmb (62q, cost 97,746.90), dqi.kmb (891q, cost 374.77e9), dfthcsos/ 15 angle loaders + 8x143x44 factorization npz (cost 299.67M), plus each component's official verifier JSON. Apache-2.0 public components; see notebook for full provenance.",
   "keywords": [
     "quantum",
     "kaggle"

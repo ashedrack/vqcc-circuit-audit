@@ -270,3 +270,47 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   recipe hyperparams, cap 0.01998, e2 slack ~1.6 mHa to spend on lambda).
 - After: finish.py lam8.npz -> gauge -> canon_gauge -> to_official -> rebuild
   angle circuits -> dfthcsos verify. Beat 3.310e8 (HW-04) -> swap -> resubmit.
+
+## HW-05..HW-15 entries (2026-11-04) - manwithacat shipped 11 new circuits
+- Re-pulled manwithacat/vqcc-hedge-wizardry (now 222MB) into public/vqcc-hedge-wizardry/.
+- New dqi candidates: HW-06..HW-09; best = HW-09 1698e864a3a6 -> 3.788e11 (~64.5x),
+  892q, 399,676T, 0 errors (measurement-based uncompute / conditionally-clean flags).
+- New chem candidates: HW-05/HW-10..HW-15; best = HW-15 bf016fb054d5 -> 3.1366e8
+  (~10.70x), lam 47.02, T=15,585, Q=428 (constrained weight refit + recompiled
+  angle loaders on SomeJoint's 15xx-word fit line).
+- Our cont7/pq/lamopt chain landed lam_eff 47.52 (~9.8x) - REJECTED vs HW-04.
+  C50/C44 ctrunc dead ends (e2 21+/31+ post-quantize).
+- v70 submission (ref 57991702): invsqrt bce2948ff24e + dqi HW-09 + chem HW-15,
+  local GM ~24.2. Public LB top now ~28.8 (still private method gap).
+
+## v70/v71 submissions (2026-11-04) - adopted syed3000 + HW components
+- v70 (ref 57991702): invsqrt bce2948 + dqi HW-09 (3.788e11, 64.5x) + chem HW-15
+  (3.1366e8, 10.70x) -> LB 24.24524, rank ~700.
+- syed3000/vqcc-own-circuit-portfolio verified BETTER on all three:
+  invsqrt 6eea5d21 98,254.9 (21.14x, same 0.9993 error margin as bce2948);
+  dqi fc3ba816 891q/396,922T -> 3.7538e11 (~65.1x, 0 errors);
+  chem 3.1255e8 (10.74x, loaders 4,436T/pass, lam 47.0).
+- v71 (ref 57993046): full syed portfolio -> local GM ~24.5.
+- gluzdov v55 (newest open_circuits): dqi 892q/399,933T (worse than syed);
+  chem C40 317.3M (worse). v41 has loader compiler SOURCE in source/.
+- LB top now ~28.8 (private methods); public-artifact ceiling ~24.5-25.
+
+## 2026-11-06 - rank dropped to 848, recovered via new releases
+- v72 (ref 57995252): alexchilton 24.59 portfolio -> LB 24.59420 (rank fell to ~848
+  over 2 days as others improved; LB top now ~29.3).
+- v73 (ref 58062265): malachiwmoody's EXACT 24.79280 zip
+  (public/malachi24/entry_2026_11_05i.pkg, sha ccf0460e) - byte-identical resubmit.
+- v74 (ref 58062337): best-of = malachi invsqrt 89c33409 + HW-22 dqi b99bf233
+  (375.32e9, 891q, byte-splice of two 891q decoders, -14T) + HW-24 chem ec58b2f5
+  (301.88M, lam 46.894, T 15,076, Q 427). Local GM ~24.85.
+- HW-16..HW-24 shipped: chem 310.8->301.88M (HW-24 re-places 11 loaders on syed's
+  NEW R8xB143xC44 fit eff6a4863f08, D=1220). Malachi chem = their refit on Atakan's
+  sign-gauged syed table (304.18M). invsqrt frontier now = kirilltym 0104d1b4 +
+  2 exact malachi edits (-0.75 T-eq).
+- marculera published FULL dfthc_refit pipeline (public/marculera_merge/): shrink.py
+  (merge+fade+LBFGS ladder), quantize.py, tensorqrom.py loader compiler, refit.
+  Env: DFTHC_DATA=$PWD/data DFTHC_STARTER=$PWD/data/starter_kit/starter_kit; jax CPU f64.
+- Own-work run: runs/ladder1 FAILED (e2 24.1 vs her 13.5 at 143x46 - undertrained,
+  defaults 1.2k/4k iters too short). runs/ladder2 RELAUNCHED with --select impact
+  --fit 12000 --final 20000 (her real ballpark ~12k-20k iters/step), pid 89820.
+  Seed eigen_9x180x90.npz (public/marculera_compact, e2 6.38 mHa continuous).
