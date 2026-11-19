@@ -346,3 +346,13 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   deterministic phase per x; true margin floor 38,858,846 @x=219317; LP refits don't
   generalize. Rotation layer exhausted -> only new-basis/compiler work can improve.
 - v77 SCORED: 28.23498 (ref 58559657) - new best, above boristown's claimed 28.2344.
+
+## Chem word-count gate CLOSED — NEGATIVE (2026-11-08)
+- Executed full chain on ladder2 (9,156,60)@13.1mHa: compress2 merge dead (199.8mHa);
+  R9->R8 drop + 3400 L-BFGS -> (8,156,60) at 19.04mHa (under cap).
+- But word count = R*B+76: B<=143 needed to beat deployed 1,220 words, and R8 error
+  floor rises ~+3mHa per ~7 B-rows cut (B148->22.7, B141->25.8, B135->29.1 after
+  800-step refits; B129 one-shot floor ~28mHa). No word-winning shape reaches cap.
+- Alternating G/U refit diverges at default lr=3e-3. Checkpoints in runs/drop_r8/.
+- Conclusion: deployed fit (at all caps) needs a days-scale optimizer lineage to
+  reproduce at lower word count. Chem lever closed for near-term; see plan_31.md.

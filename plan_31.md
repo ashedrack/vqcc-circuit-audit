@@ -77,6 +77,21 @@ T_total = 14,706 (loaders 8,044 / inner 4,095 / rot 2,250); λ_eff at cap.
   Since the deployed fit sits at ALL error caps (e1=e2=0.02, gap at
   floor), a fit with ~10% fewer words may still pass → −800 loader T
   ≈ −5% T_total. Gate: run our fit chain at ~1,100 words and check caps.
+- **3a-gate CLOSED — NEGATIVE (2026-11-08):** full ladder2 refit chain
+  executed. Results:
+  * compress2 merge path (9,156,60)→merge+trunc: 199.8 mHa. Dead.
+  * compress.py R9→R8 drop + 3,400 L-BFGS: (8,156,60) **19.04 mHa —
+    under cap**, but 8·156+76 = 1,324 words (worse than deployed 1,220).
+  * Staged B-cut from that fit (800-step refit/stage): B148→22.7,
+    B141→25.8, B135→29.1, B129 floor ~28 mHa. All over the 19.998 cap.
+  * Alternating G/U refit diverges at default lr (28→57 mHa).
+  * Verdict: R8 fits need B≤143 to beat deployed word count, and the
+    R8 error floor rises ~+3 mHa per ~7 B-rows cut — every sub-cap
+    word-winning shape is unreachable with our optimizer budget. The
+    deployed fit sits at ALL caps; reproducing that fit quality at
+    reduced words likely needs a longer/different optimizer lineage
+    (days-scale), not a chain tweak.
+  * Checkpoints kept under runs/drop_r8/ for any future long-refit.
 - **3b. brot=7:** heuristic T drops ~300 (Givens adders get cheaper) but
   needs quantization-aware refit (qat.py) — moderate payoff, known
   risk profile from earlier notes.
