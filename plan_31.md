@@ -57,30 +57,31 @@ probe it early.
 signature per region (BM rounds, omega transform, Psi pass, sweep) —
 this is the publishable "anatomy of a 366k-Toffoli decoder" notebook.
 
-## Phase 2 — rep_factor tradeoff
+## Phase 2 — rep_factor tradeoff (CLOSED: statistical floor)
 
-rep=1.19126 prices effective error rate 8.67e-4. If a different
-truncation point exists (rep→~1.10), that's −7.7% cost directly.
-
-- Need: enumerate which approximations produce the error mass —
-  bm_windows cutoffs, reversal-stack depth, Euclid class coverage
-  (Lukin blueprint in `public/lukin_dqi/` has the search models:
-  constants.json, gen_constants.py).
-- Method: correlate failure shots with circuit regions; attempt
-  threshold edits via kmb_edit on the condition-bit logic.
-- Risk: probably already tuned. Low-effort probe first.
+`eps_plus` is the one-sided Clopper-Pearson bound on OBSERVED failures
+at confidence 1−2^-128 over the fixed 102,400 shots. Our circuit had
+0 errors → eps_plus ≈ 8.67e-4 → rep ≈ 1.19. This bound is identical
+for every zero-error submission — a floor set by shot count and the
+verifier's confidence parameter, NOT a design tradeoff. No circuit
+change reduces it. Dead lever, closed 2026-11-19.
 
 ## Phase 3 — chem shape/coding search
 
 T_total = 14,706 (loaders 8,044 / inner 4,095 / rot 2,250); λ_eff at cap.
 
-- **3a. Shape scan:** evaluate verifier cost model at alternative
-  R×B×C shapes (B=129 cliff). Write `dfthcsos/shape_scan.py` —
-  cost-model-only evaluation, no fits. Cheap, do early.
-- **3b. Coding search:** alternative word-codings → different ANF mass.
-  Requires refits via existing chain (fit_als → compress → wrefit →
-  lambda_stage → to_official). Highest uncertainty — run in background
-  only after 3a narrows the space.
+- **3a. Shape scan (DONE):** `dfthcsos/shape_scan.py` built on the
+  verifier's own `SpinFreeData_V1`. Findings: loader T scales ~3.3
+  Toffolis per angle word; deployed uses 1,220 words (8·143+76).
+  Heuristic T responds weakly to R/B/C — the real dial is **word count**.
+  Since the deployed fit sits at ALL error caps (e1=e2=0.02, gap at
+  floor), a fit with ~10% fewer words may still pass → −800 loader T
+  ≈ −5% T_total. Gate: run our fit chain at ~1,100 words and check caps.
+- **3b. brot=7:** heuristic T drops ~300 (Givens adders get cheaper) but
+  needs quantization-aware refit (qat.py) — moderate payoff, known
+  risk profile from earlier notes.
+- **3c. Coding search:** alternative word-codings → different ANF mass.
+  Highest uncertainty — only after 3a's fit lands.
 
 ## Phase 4 — invsqrt 43q + own decoder (long-horizon)
 
