@@ -314,3 +314,35 @@ Architecture (see public/lukin_dqi/discovered/README.md - full math):
   defaults 1.2k/4k iters too short). runs/ladder2 RELAUNCHED with --select impact
   --fit 12000 --final 20000 (her real ballpark ~12k-20k iters/step), pid 89820.
   Seed eigen_9x180x90.npz (public/marculera_compact, e2 6.38 mHa continuous).
+
+## 2026-11-19 - resumed after 13-day gap; v76 submitted (local GM ~28.23)
+- Project was in ~/.Trash - RESTORED to ~/Desktop/Kaggle-competition (venv shebangs expect this path).
+- LB top moved ~29.3 -> ~31.7 (Z'C'onerence). Public artifact ceiling jumped: several
+  27-28 verified portfolios released since Nov 6 (ozertuu 28.091, asterios 28.18 claim,
+  ahoirg 27.29, alexchilton 24.94 = our v75 equivalent).
+- Downloaded ozertuu/quantum-sim-linalg-cache (dataset updated 2026-11-18, NEWER than
+  the pinned notebook manifest - hashes differ, but artifacts verified directly).
+- Local verification of dataset artifacts (all PASS):
+  * invsqrt.kmb sha d0227f3c: cost 74,405.59 -> 27.91x (44q, 1451 T, err 0.9995)
+  * dqi.kmb sha e208d350: 890q, 345,252,882,081 -> ~70.8x, 0 errors/102400 shots
+    (variant dqi_15a4b740 verified 345,256,821,434 - marginally worse, rejected)
+  * dfthcsos/: 294,642,171 -> 11.39x (lam 46.9216, 14,706T, 427q, brot 8,
+    e1/e2 both at 0.0199999 caps - fully spent)
+- v76 submitted (ref 58552973): local GM ~28.23. NOTE: kaggle submit -m long
+  messages can 400; keep -m short ("v76 verified portfolio" worked).
+- Own-work chem: ladder2 stalled at (9,156,60) e2 13.13 mHa (healthy, mid-shrink).
+  Resume path: continue shrink to ~(9,143,46) then recipes/finish_merged_b8.toml.
+- New public sources pulled: public/ozer28, public/asterios28, public/friends150k
+  (manwithacat full-release notebook), public/helios_ds (qcc-circuits-live dataset).
+
+## v77 submission (2026-11-19)
+- Components: invsqrt boristown ecf908fe (PASS 74,383.66, 44q, worst 0.99946 @x=231);
+  dqi boristown 4471b49 (PASS 345,236,065,276, 890q, 0 err, rep 1.19126);
+  chem = ozer28 set (294,642,171). Est GM ~28.19. Ref 58559657.
+- Both boristown artifacts came from kernel output of
+  `boristown/qcc-gap-3-residue-repair-and-c43-native-compiler` (submission.zip).
+  dqi 4471b49 was NOT in manwithacat manifest - fresh unlisted improvement over e208d350.
+- invsqrt angle-refit audit (tools/angle_refit.py): 48-angle basis at compiler optimum;
+  deterministic phase per x; true margin floor 38,858,846 @x=219317; LP refits don't
+  generalize. Rotation layer exhausted -> only new-basis/compiler work can improve.
+- v77 SCORED: 28.23498 (ref 58559657) - new best, above boristown's claimed 28.2344.
