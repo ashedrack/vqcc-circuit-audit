@@ -1,90 +1,108 @@
-# Path to GM ~31 (+3 points)
+# Path to GM ~31 (+3 points) — preparation plan
 
 Current: **28.23498** (v77). Target: **~31** = product ×1.331.
+Status: PREPARATION PHASE — tooling and measurements staged below; no
+execution started. This document is the single source of truth.
 
-## The arithmetic
+## The arithmetic (verified against deployed v77)
 
 | Task | Now | −9.3% (distributed path) | What it means |
 |---|---|---|---|
 | invsqrt | 74,383.7 (27.92x) | ~67,500 (30.8x) | −6,900 cost |
-| dqi | 345.236e9 (70.4x) | ~313e9 (77.6x) | −32e9 = T_exec 366k → ~331k |
+| dqi | 345.236e9 (70.4x) | ~313e9 (77.6x) | T_exec 366k → ~331k |
 | chem | 294.64e6 (11.39x) | ~267.5e6 (12.5x) | −27e6 |
 
-Single-task alternatives are all harder: dqi alone needs T_exec 366k→270k
-(−26%) or Q 890→764 (impossible — 840 syndrome qubits are irreducible).
-The realistic route is **modest gains on all three tasks at once**.
+Single-task alternatives: dqi alone needs T_exec 366k→270k (−26%) or
+Q 890→764 (impossible — 840 syndrome qubits irreducible). The realistic
+route is modest gains on all three at once.
 
-## Cost decomposition of the dqi file (the big lever)
+---
+
+## Phase 0 — Measurement infrastructure (DONE / staged)
+
+| Deliverable | Status | Purpose |
+|---|---|---|
+| `tools/dqi_decompose.py` | written | op histograms per 250k window; register-activity map; dense-CCX multiplier-motif detection |
+| `tools/manifest_watch.py` | written | diffs public manifest vs deployed portfolio; flags better artifacts |
+| `tools/pack_submission.py` | written | one-command submission.zip assembly |
+| `tools/and_scan.py` | done | op-stream AND-window scanner |
+| `tools/kmb_edit.py` | done | binary editor, byte-identical round-trip |
+| `tools/angle_refit.py` | done | rotation-layer linear-basis extraction + LP |
+| `tools/margin_scan` (formalize) | TODO | extract the all-x margin scan into a reusable module |
+| `tools/lifetime.py` (formalize) | TODO | qubit lifetime/occupancy analysis (was ad-hoc) |
+
+## Phase 1 — dqi T_exec decomposition (start here)
 
 `score = rep_factor × Q² × T_exec` = 1.19126 × 890² × 365,872.
 
-Three multiplicative attack surfaces:
+**Gate G1 (first measurement — DONE, informative negative):**
+`dqi_decompose.py` on the 890q file shows:
+- 349,407 static CCX concentrated in windows 71–182 (~ops 18M–45M) —
+  the Berlekamp–Massey decode region.
+- Hottest registers: E70/E73/E72 (~50–58k CCX each, 12 qubits) — the
+  GF-arithmetic workhorses; S/E register pairs share activity (in-place
+  omega workspace confirmed again).
+- **Zero localized multiplier cells**: no dense CCX run stays within
+  ≤18 qubits — the compiler interleaves GF arithmetic across the whole
+  register set. A block-level Karatsuba swap is NOT available.
 
-1. **T_exec = 365,872** — dominated by GF(2¹²) arithmetic in the
-   Berlekamp–Massey rounds. Schoolbook GF(2^12) multiply = 12² = 144
-   ANDs ≈ 144 Toffolis. Karatsuba (3-way split, char-2) cuts this to
-   ~3×6² = 108 ANDs (−25% per multiplication) before even counting the
-   additive savings from the binary-tree decomposition. If ~half the
-   executed Toffolis are GF-multiplier ANDs, a Karatsuba/Toom multiplier
-   pass is worth ~−15–45k T_exec alone. **This is concretely measurable:**
-   instrument the op stream, isolate the multiplier blocks, replace with
-   a cheaper multiplier circuit. It is also genuinely own work — a better
-   GF(2^12) inverter/multiplier cell is a publishable artifact.
-2. **rep_factor = 1.19126** — priced by effective error rate 8.67e-4
-   (truncation budget). The file deliberately spends ~1.4e-4-9e-4 failure
-   probability to save Toffolis. A different point on this tradeoff may
-   dominate: e.g. rep 1.19→~1.10 (−7.7% cost) if error-rate ~4e-4 is
-   reachable at +few k T_exec. Needs understanding exactly which
-   truncations generate the residual failure mass (bm_windows cutoffs +
-   reversal-stack depth + Euclid class coverage).
-3. **Q² = 792,100** — 840 syndrome + 50 workspace; proven irreducible.
-   Ignore.
+Revised Phase-1 consequence: surgical subroutine replacement is off the
+table. GF-arithmetic improvement requires either (a) algebraic
+decompilation of the multiplier structure across the interleaved stream
+(hard), or (b) our own decoder with cheaper arithmetic (Phase 4). The
+rep_factor tradeoff (Phase 2) is now the more promising dqi lever —
+probe it early.
 
-Composite example to ~31: dqi T_exec −15% (366k→311k → cost ~295e9)
-× chem −10% (→265e6) × invsqrt −3% (→72.2k) gives product ×1.33.
+**1b. Block-catalog:** even without swap, catalog the executed-op
+signature per region (BM rounds, omega transform, Psi pass, sweep) —
+this is the publishable "anatomy of a 366k-Toffoli decoder" notebook.
 
-## Chem path (−10%)
+## Phase 2 — rep_factor tradeoff
 
-T_total = 14,706: loaders 8,044, inner-prep 4,095, rotations 2,250.
-λ_eff saturated at caps. Levers:
+rep=1.19126 prices effective error rate 8.67e-4. If a different
+truncation point exists (rep→~1.10), that's −7.7% cost directly.
 
-- **Encoding/ANF-mass search**: loaders are optimal *for this encoding*;
-  a different coded-word scheme changes the Boolean functions' algebraic
-  normal form. Small changes to word coding could cut the 189 product
-  terms. Requires a refit (fit_als.py + wrefit.py chain exists) plus a
-  coding search — the highest-uncertainty item.
-- **Factorization shape**: R/B/C tradeoffs change loader count and
-  inner-prep T; the cost model has cliffs (B=129 temp-qubit cliff).
-  Cheapest exploration: evaluate alternative R×B×C shapes under the
-  error caps using existing pipeline.
+- Need: enumerate which approximations produce the error mass —
+  bm_windows cutoffs, reversal-stack depth, Euclid class coverage
+  (Lukin blueprint in `public/lukin_dqi/` has the search models:
+  constants.json, gen_constants.py).
+- Method: correlate failure shots with circuit regions; attempt
+  threshold edits via kmb_edit on the condition-bit logic.
+- Risk: probably already tuned. Low-effort probe first.
 
-## Invsqrt path (−3%)
+## Phase 3 — chem shape/coding search
 
-- 44→43 qubit rebuild = −1,700 cost instantly (1 qubit ≈ 38 T-equiv).
-  Requires a borrow scheme for the correction-stage working set — the
-  frontier didn't find one; fresh eyes may.
-- New rotation basis terms: proven useless as pure x-bit functions;
-  computed parities (free CX) on the normalized value might give the LP
-  a working column. Low probability, low cost to test.
+T_total = 14,706 (loaders 8,044 / inner 4,095 / rot 2,250); λ_eff at cap.
 
-## Execution order
+- **3a. Shape scan:** evaluate verifier cost model at alternative
+  R×B×C shapes (B=129 cliff). Write `dfthcsos/shape_scan.py` —
+  cost-model-only evaluation, no fits. Cheap, do early.
+- **3b. Coding search:** alternative word-codings → different ANF mass.
+  Requires refits via existing chain (fit_als → compress → wrefit →
+  lambda_stage → to_official). Highest uncertainty — run in background
+  only after 3a narrows the space.
 
-1. **dqi GF-arithmetic audit** (this week): parse the op stream, locate
-   the multiplier structure, measure AND-density per BM round. Output:
-   exact T_exec decomposition → tells us how much a Karatsuba/Toom
-   multiplier circuit saves. Concrete, bounded, own work.
-2. **rep-factor tradeoff mapping**: enumerate which approximations
-   generate the 8.7e-4 error rate; re-solve the tradeoff for min cost.
-3. **Chem encoding search**: background — run the existing fit chain at
-   alternative word codings; measure ANF mass of candidates.
-4. **invsqrt 43q study**: sketch the correction stage's working set;
-   identify a borrow candidate.
-5. **Watch the public frontier**: manifest diff weekly — free gains have
-   historically arrived ~weekly (+0.003 to +0.25).
+## Phase 4 — invsqrt 43q + own decoder (long-horizon)
 
-## Deliverables along the way
+- 44→43q = −1,700 cost: needs a borrow scheme for the Newton-correction
+  working set. Prep: lifetime map of ops 6760–7230 region
+  (correction stage) from and_scan disturbance data.
+- `dqi/build.py`: own decoder verified end-to-end on small-m; remaining
+  is backward replay + m=4095 compile. Original work, months-scale —
+  pursue only if Phase 1 shows the public file is unbeatable at the
+  multiplier level (then own-decoder novelty is the only dqi lever).
 
-Each stage produces a citable artifact: GF-multiplier notebook, decoder
-build, factorization results, audit updates. Commit + push to
-ashedrack/vqcc-circuit-audit per stage; publish the strongest as Kaggle
-notebooks for community visibility.
+## Phase 5 — Cadence
+
+- Weekly: `manifest_watch.py` → adopt improvements (free gains).
+- Per stage: commit + push to `ashedrack/vqcc-circuit-audit`;
+  publish the strongest artifacts as Kaggle notebooks.
+- Evidence: log each stage's outputs in frontier_review.md + the
+  Global Talent evidence file (section 6).
+
+## Decision summary
+
+| If Phase-1 finds… | Then |
+|---|---|
+| Schoolbook GF multipliers | Karatsuba swap → likely −10-15% dqi T_exec → GM ~28.7-29; then chem shape scan for the rest |
+| Already-optimal multipliers | dqi lever = rep_factor probe → if dead, own decoder is the only 31-path; accept ~29 as realistic ceiling without breakthrough |

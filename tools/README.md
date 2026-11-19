@@ -38,3 +38,6 @@ ops, nq, nb = parse_kmb('../public/ozer28/data/invsqrt.kmb')
 print(ops.shape, nq, nb)
 EOF
 ```
+| `dqi_decompose.py` | dqi cost decomposition: window histograms, register-activity map, multiplier-cell detection. Result: hottest regs E70/E73/E72 (~55k CCX/12q); zero localized multiplier cells — GF arithmetic is interleaved, no block-swap available. |
+| `manifest_watch.py` | Diffs manwithacat's public manifest vs deployed portfolio; flags better artifacts to adopt. |
+| `pack_submission.py` | One-command submission.zip assembly (invsqrt.kmb + dqi.kmb + dfthcsos/ at root). |
